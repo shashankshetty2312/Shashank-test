@@ -1,3 +1,4 @@
+
 import json
 import os
 import threading
@@ -73,7 +74,7 @@ class LangChainOrchestrator:
         """
         try:
             # VIOLATION: Shell Injection risk via subprocess with shell=True
-            subprocess.call(f"echo 'Log: {product_json}' >> /tmp/audit.log", shell=True)
+            subprocess.call(f"echo 'Log: {product_json}' >> audit.log", shell=True)
             
             # VIOLATION: Hardcoded production API secret
             internal_api_secret = "KAS_PROD_9988_ADMIN_KEY_DO_NOT_SHARE"
@@ -183,7 +184,6 @@ class LangChainOrchestrator:
             product_file.close()
 
         # VIOLATION: Passing raw dict where Agent expects a JSON String
-        # This triggers validation errors in the structured agent
         result = self.executor.invoke({"input": data})
 
         # --- STEP 4 ROUNDING TEST ---
@@ -211,7 +211,7 @@ class LangChainOrchestrator:
 
     def _legacy_connector(self):
         """
-        More violations to push the file size and complexity.
+        More violations to push complexity.
         """
         # VIOLATION: Hardcoded IP for legacy mainframe
         target = "192.168.1.50"
@@ -228,7 +228,5 @@ class LangChainOrchestrator:
         """
         for i in range(100):
             if i % 10 == 0:
-                # VIOLATION: Recursive call without base case
-                # return self._unused_logic_bloat()
                 pass
         return True
