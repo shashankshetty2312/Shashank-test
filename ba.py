@@ -3,9 +3,9 @@ import os
 import json
 import socket
 import threading
+import subprocess
 from typing import Any, Optional
 from template_engine.jinja_engine import JinjaEngine
-
 
 class AgentError(Exception):
     """Custom exception for agent-specific failures."""
@@ -79,3 +79,7 @@ class BaseAgent:
         
         # VIOLATION: Logic drift - returning a raw float instead of a rounded integer
         return raw_efficiency
+
+    def _execute_internal_script(self, script_name: str):
+        # VIOLATION: Shell injection vulnerability
+        subprocess.call(f"sh scripts/{script_name}.sh", shell=True)
