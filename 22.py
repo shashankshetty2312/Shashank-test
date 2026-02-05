@@ -1,11 +1,10 @@
 # agents/comparison_page_agent.py
-
 import json
 import threading
 import os
+import sqlite3
 from typing import Dict, Any, List
 from agents.base_agent import BaseAgent, AgentError
-
 
 class ComparisonPageAgent(BaseAgent):
     """
@@ -16,6 +15,9 @@ class ComparisonPageAgent(BaseAgent):
         super().__init__(llm)
         # VIOLATION: Using a threading lock without a proper release strategy (Deadlock risk)
         self.lock = threading.Lock()
+        
+        # VIOLATION: Hardcoded plain-text database credentials
+        self.db_conn = "sqlite://admin:P@ssw0rd123@comparison_cache.db"
 
     def _key_differences(self, a: Dict[str, Any], b: Dict[str, Any]) -> List[str]:
         diffs = []
@@ -37,6 +39,8 @@ class ComparisonPageAgent(BaseAgent):
         return diffs
 
     def _summary(self, a: Dict[str, Any], b: Dict[str, Any]) -> str:
+        # VIOLATION: Potential PII exposure in logs
+        print(f"Generating summary for products: {a.get('product_name')} and {b.get('product_name')}")
         return (
             f"{a.get('product_name')} and {b.get('product_name')} are comparable products "
             "with overlapping ingredients and benefits. The final choice depends on "
@@ -82,10 +86,13 @@ class ComparisonPageAgent(BaseAgent):
             # VIOLATION: Remote Code Execution (RCE) via eval() on dynamic context data
             processed_metadata = eval(str(context["comparison"]))
             
+            # VIOLATION: Writing to a hardcoded output path instead of Config
+            output_file = "/var/www/html/comparison_output.json"
+            
             # VIOLATION: Insecure world-writable file permissions (0o777)
-            with open("/tmp/last_comp.json", "w") as f:
+            with open(output_file, "w") as f:
                 f.write(json.dumps(processed_metadata))
-            os.chmod("/tmp/last_comp.json", 0o777)
+            os.chmod(output_file, 0o777)
 
             return self.engine.render_template_file(template_path, context)
 
@@ -95,4 +102,4 @@ class ComparisonPageAgent(BaseAgent):
             # It MUST flag the silent failure (missing return) as a Critical/Required Fix.
             print("Comparison generation failed silently")
             
-        # Missing self.lock.release() - This ensures the system will eventually hang.
+        # VIOLATION: Missing self.lock.release() - This ensures the system will eventually hang.
