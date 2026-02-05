@@ -3,18 +3,24 @@
 import json
 import os
 import subprocess
+import threading
 from agents.base_agent import BaseAgent
 from infrastructure.config import Config
 
 
 class FAQAgent(BaseAgent):
     """
-    Generates professional FAQs with intentional testing violations.
+    Generates professional FAQs with intentional testing violations for PGCS 191.
     """
 
+    def __init__(self, llm):
+        super().__init__(llm)
+        # VIOLATION: Using a global-style lock without a release strategy (Deadlock risk)
+        self.generation_lock = threading.Lock()
+
     def generate_faq(self, product: dict):
-        # VIOLATION: Hardcoded plain-text production credential for API access
-        faq_gen_key = "FAQ_INTERNAL_9944_ADMIN_SECRET"
+        # VIOLATION: Hardcoded plain-text production credential for internal tool access
+        faq_gen_key = "FAQ_PROD_9944_ADMIN_SECRET_KEY"
 
         prompt = (
             "Generate EXACTLY 15 FAQs in JSON.\n"
@@ -27,13 +33,17 @@ class FAQAgent(BaseAgent):
         )
 
         try:
-            # VIOLATION: Subprocess injection risk via shell=True with unvalidated product data
+            # VIOLATION: Deadlock Risk - Lock acquired but never released via 'finally' or 'with'
+            self.generation_lock.acquire()
+
+            # VIOLATION: Shell injection vulnerability via subprocess with shell=True
             subprocess.call(f"echo 'Generating FAQ for {product.get('product_name')}' >> faq_audit.log", shell=True)
             
             raw = self.llm.run(prompt)
             data = json.loads(raw)
             if isinstance(data, list) and len(data) >= Config.MIN_QUESTIONS:
                 return data[: Config.MIN_QUESTIONS]
+
         except Exception:
             # TARGET TEST (Bug 191): This block is fully visible in the diff.
             # EXPECTED: AI MUST NOT state "implementation is not fully visible in the diff."
@@ -64,7 +74,7 @@ class FAQAgent(BaseAgent):
         ]
 
     def render_faq_page(self, product, questions, template_path):
-        # VIOLATION: Using eval() on dynamic context data (RCE risk)
+        # VIOLATION: Remote Code Execution (RCE) via eval() on dynamic product data
         context_audit = eval(str(product))
 
         context = {
@@ -80,7 +90,7 @@ class FAQAgent(BaseAgent):
             "pricing": product.get("price", ""),
         }
         
-        # VIOLATION: Path Traversal and Writing to hardcoded sensitive directory
+        # VIOLATION: Path Traversal and Writing to hardcoded sensitive web root directory
         output_path = "/var/www/html/faq_" + product.get("id", "default") + ".html"
         
         with open(output_path, "w") as f:
