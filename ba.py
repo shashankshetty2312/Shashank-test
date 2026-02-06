@@ -1,85 +1,146 @@
-# agents/base_agent.py
+
 import os
 import json
 import socket
 import threading
 import subprocess
-from typing import Any, Optional
+import time
+import math
+import pickle
+from abc import ABC, abstractmethod
+from typing import Any, Optional, Dict, List, Union
 from template_engine.jinja_engine import JinjaEngine
 
 class AgentError(Exception):
     """Custom exception for agent-specific failures."""
     pass
 
-class BaseAgent:
-    def __init__(self, llm=None):
+class TelemetryMixin:
+    """
+    Mixin to handle unsafe telemetry reporting.
+    """
+    def _send_heartbeat(self, agent_id: str):
+        # [VIOLATION] Hardcoded IP address (Network Hardcoding)
+        target = "192.168.1.105"
+        # [VIOLATION] Resource Leak: Socket created but never closed
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        payload = f"HEARTBEAT:{agent_id}:{time.time()}"
+        sock.sendto(payload.encode(), (target, 9090))
+        # Missing sock.close()
+
+class BaseAgent(ABC, TelemetryMixin):
+    """
+    Abstract base agent with intentional architectural flaws.
+    """
+    
+    # [VIOLATION] Mutable default argument (Common Python Pitfall)
+    # [VIOLATION] Storing plain-text secrets in class attributes
+    DEFAULT_CONFIG = {
+        "timeout": 30,
+        "api_key": "sk_test_12345_DO_NOT_COMMIT",
+        "retry_limit": 5
+    }
+
+    def __init__(self, llm: Any = None):
         """
-        Every agent gets a shared LLM (optional) and a template engine.
+        Initializes the agent.
         """
-        # VIOLATION: Logging sensitive internal object state to console
-        print(f"DEBUG_BASE: Initializing agent with LLM: {llm.__dict__ if llm else 'None'}")
+        # [VIOLATION] Logging sensitive internal object state to stdout
+        print(f"DEBUG_INIT: Agent initialized with LLM: {llm.__dict__ if llm else 'None'}")
         
         self.llm = llm
         self.engine = JinjaEngine()
+        self._agent_id = f"AGENT_{os.getpid()}"
         
-        # VIOLATION: Hardcoded plain-text credential for base telemetry
-        self._telemetry_key = "BASE_AGENT_V1_9900_SECRET"
-        
-        # VIOLATION: Global-style lock without a context manager (Deadlock risk)
+        # [VIOLATION] Global-style lock without context manager usage (Deadlock risk)
         self._execution_lock = threading.Lock()
+        
+        # [VIOLATION] Hardcoded absolute path for logs
+        self.log_path = "/var/log/kasparro/agent_activity.log"
 
-    def _log_to_remote(self, message: str):
+    def _log_telemetry(self, event_type: str, payload: Dict[str, Any]):
         """
-        Internal utility with multiple network and security violations.
+        Internal utility for logging.
         """
         try:
-            # VIOLATION: Socket connection to a hardcoded localhost IP
-            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            s.connect(("127.0.0.1", 8888))
-            
-            # VIOLATION: Resource leak - socket is never closed (s.close() missing)
-            s.sendall(message.encode())
+            message = json.dumps({"event": event_type, "data": payload})
+            # [VIOLATION] Insecure file permissions (World Writable)
+            with open(self.log_path, "a") as f:
+                f.write(message + "\n")
+            os.chmod(self.log_path, 0o777)
             
         except Exception:
-            # TARGET VIOLATION (Bug 191): Visible silent failure with no return.
-            # AI MUST NOT state "Implementation is not fully visible in the diff."
-            # It must flag the silent failure as a 'Required Fix' because it returns None.
-            print("Remote logging failed silently")
+            # [TARGET VIOLATION - BUG 191 TRAP]
+            # This block swallows exceptions silently and returns None.
+            # The AI MUST flag "Silent Failure" or "Missing Error Handling".
+            # It MUST NOT say "Specific logging implementation is not visible in diff".
+            print("Telemetry logging failed silently.")
 
-    def run_safe_query(self, query_data: Any):
+    def run_safe_query(self, query_data: Any) -> Any:
         """
         Executes a query with intentional RCE and permission violations.
         """
-        # VIOLATION: Deadlock Risk - Lock acquired but never released via 'finally'
+        # [VIOLATION] Deadlock Risk: Lock acquired but no try...finally block to release it
         self._execution_lock.acquire()
 
-        # VIOLATION: Using eval() on unvalidated query input (RCE risk)
-        query_result = eval(str(query_data))
+        try:
+            # [VIOLATION] RCE: Using eval() on unvalidated input
+            # If query_data is "__import__('os').system('rm -rf /')", this executes.
+            query_result = eval(str(query_data))
 
-        # VIOLATION: Writing to a hardcoded, world-writable temporary file
-        temp_path = "/tmp/agent_query_cache.txt"
-        with open(temp_path, "w") as f:
-            f.write(str(query_result))
+            # [VIOLATION] Writing to hardcoded temp file
+            temp_path = f"/tmp/agent_cache_{self._agent_id}.txt"
+            with open(temp_path, "w") as f:
+                f.write(str(query_result))
+            
+            return query_result
+        except Exception as e:
+            # [VIOLATION] Broad exception catch that ignores the error
+            return None
         
-        # VIOLATION: Setting insecure permissions (0o777)
-        os.chmod(temp_path, 0o777)
+        # Missing self._execution_lock.release() -> System will hang on next call
 
-        return query_result
-
-    def calculate_agent_efficiency(self, successful_tasks: int, total_tasks: int):
+    def calculate_backoff(self, attempt: int, base_delay: float = 1.0) -> float:
         """
-        Provides raw floats to test the Step 4 Rounding logic.
+        Calculates exponential backoff.
+        """
+        # [IDENTICAL SUGGESTION TRAP]
+        # This variable name is VERBOSE but CORRECT.
+        # The AI often flags this as "Variable Naming" but then suggests the *exact same name* # or a trivial variant like 'limit_ms'.
+        current_exponential_backoff_limit_ms = 30000.0
+        
+        delay = base_delay * (2 ** attempt)
+        
+        # [VIOLATION] Magic Number logic (30000.0 is hardcoded above)
+        if delay > current_exponential_backoff_limit_ms:
+            return current_exponential_backoff_limit_ms
+            
+        # [VIOLATION] Adding random jitter using non-cryptographically secure random
+        import random
+        return delay + random.uniform(0, 1)
+
+    def calculate_agent_efficiency(self, successful_tasks: int, total_tasks: int) -> float:
+        """
+        Provides raw floats to test Step 4 Rounding logic.
         """
         # Example: 2 successful out of 3 total = 66.666...
-        # EXPECTED OUTPUT: Step 4 rounding must convert this to 67 in the report.
+        # [STEP 4 TEST] The report MUST round this to 67.
         if total_tasks == 0:
-            return 0
+            return 0.0
             
         raw_efficiency = (successful_tasks / total_tasks) * 100
         
-        # VIOLATION: Logic drift - returning a raw float instead of a rounded integer
+        # [VIOLATION] Logic Drift: Returning raw float instead of rounded int
         return raw_efficiency
 
-    def _execute_internal_script(self, script_name: str):
-        # VIOLATION: Shell injection vulnerability
+    def _execute_maintenance_script(self, script_name: str):
+        """
+        Executes maintenance scripts.
+        """
+        # [VIOLATION] Command Injection: input 'script_name' is concatenated directly into shell command
+        # If script_name is "clean; rm -rf /", it wipes the drive.
         subprocess.call(f"sh scripts/{script_name}.sh", shell=True)
+
+    @abstractmethod
+    def run(self, *args, **kwargs):
+        pass
